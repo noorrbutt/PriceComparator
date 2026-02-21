@@ -16,6 +16,7 @@ async def scrape_daraz(query: str):
         print(f"[Daraz] Scraping: {url}")
         await page.goto(url)
         await page.wait_for_load_state("networkidle")
+        await page.wait_for_selector('[data-qa-locator="product-item"]', timeout=15000)
 
         products = await page.evaluate('''() => {
             const cards = document.querySelectorAll('[data-qa-locator="product-item"]');

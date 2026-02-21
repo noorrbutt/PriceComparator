@@ -1,23 +1,28 @@
+import asyncio
+import sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.api.routes import router
 
-# This creates your FastAPI application instance
-# Think of it as the "engine" of your backend
+# This is the Windows fix — must be at the top before anything else runs
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 app = FastAPI(
     title="Price Comparator API",
     description="Compares prices from Daraz and OLX",
     version="1.0.0"
 )
 
-# CORS middleware so your frontend can talk to this backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:8000"],
+    allow_origins=["http://localhost:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Basic health check route
+app.include_router(router, prefix="/api")
+
 @app.get("/")
 def root():
     return {"status": "running", "message": "Price Comparator API is live"}

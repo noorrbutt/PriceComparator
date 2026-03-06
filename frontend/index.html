@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PricePulse — Pakistan Price Comparator</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0a0a0b;
+      --surface:  #111113;
+      --border:   #1f1f23;
+      --accent:   #e8ff47;
+      --accent2:  #ff4f6d;
+      --text:     #e8e8e2;
+      --muted:    #5a5a62;
+      --daraz:    #ff6a00;
+      --olx:      #3bc26e;
+      --radius:   6px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── NOISE TEXTURE OVERLAY ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      background-size: 200px;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.5;
+    }
+
+    /* ── HEADER ── */
+    header {
+      position: relative;
+      z-index: 10;
+      padding: 48px 48px 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+
+    .logo {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(3rem, 8vw, 6rem);
+      letter-spacing: 0.02em;
+      line-height: 0.9;
+      color: var(--text);
+    }
+
+    .logo span {
+      color: var(--accent);
+    }
+
+    .tagline {
+      font-size: 0.8rem;
+      color: var(--muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      padding-bottom: 12px;
+    }
+
+    /* ── SEARCH SECTION ── */
+    .search-section {
+      position: relative;
+      z-index: 10;
+      padding: 40px 48px 32px;
+    }
+
+    .search-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .search-row {
+      display: flex;
+      gap: 12px;
+      align-items: stretch;
+      max-width: 720px;
+    }
+
+    .search-input {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 1.1rem;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .search-input::placeholder { color: var(--muted); }
+
+    .search-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(232, 255, 71, 0.08);
+    }
+
+    .search-btn {
+      background: var(--accent);
+      color: #0a0a0b;
+      border: none;
+      border-radius: var(--radius);
+      padding: 16px 32px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.2rem;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      white-space: nowrap;
+    }
+
+    .search-btn:hover { background: #d4eb30; }
+    .search-btn:active { transform: scale(0.98); }
+    .search-btn:disabled { background: #2a2a2e; color: var(--muted); cursor: not-allowed; transform: none; }
+
+    /* ── FILTER BAR ── */
+    .filter-bar {
+      position: relative;
+      z-index: 10;
+      padding: 0 48px 32px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .filter-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-right: 4px;
+    }
+
+    .filter-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.8rem;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .filter-btn:hover { border-color: var(--text); color: var(--text); }
+
+    .filter-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #0a0a0b;
+      font-weight: 500;
+    }
+
+    .source-dot {
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    /* ── DIVIDER LINE ── */
+    .divider {
+      position: relative;
+      z-index: 10;
+      margin: 0 48px;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── STATUS BAR ── */
+    .status-bar {
+      position: relative;
+      z-index: 10;
+      padding: 16px 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 52px;
+    }
+
+    .status-text {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    .status-text strong { color: var(--accent); font-weight: 500; }
+
+    .sort-select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 12px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      cursor: pointer;
+      outline: none;
+    }
+
+    /* ── LOADER ── */
+    .loader {
+      display: none;
+      position: relative;
+      z-index: 10;
+      padding: 80px 48px;
+      text-align: center;
+    }
+
+    .loader.visible { display: block; }
+
+    .loader-dots {
+      display: inline-flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .loader-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+
+    .loader-dot:nth-child(2) { animation-delay: 0.2s; }
+    .loader-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes pulse {
+      0%, 80%, 100% { opacity: 0.15; transform: scale(0.8); }
+      40% { opacity: 1; transform: scale(1.1); }
+    }
+
+    .loader-text {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+    }
+
+    /* ── RESULTS GRID ── */
+    .results {
+      position: relative;
+      z-index: 10;
+      padding: 8px 48px 80px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+
+    /* ── PRODUCT CARD ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+      animation: fadeUp 0.35s ease both;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .card:hover {
+      border-color: #333338;
+      transform: translateY(-3px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    }
+
+    .card-img {
+      width: 100%;
+      aspect-ratio: 4/3;
+      object-fit: contain;
+      background: #16161a;
+      padding: 16px;
+    }
+
+    .card-img-placeholder {
+      width: 100%;
+      aspect-ratio: 4/3;
+      background: #16161a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2.5rem;
+      color: #2a2a30;
+    }
+
+    .card-body {
+      padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .card-source {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 3px 8px;
+      border-radius: 3px;
+      align-self: flex-start;
+    }
+
+    .card-source.daraz {
+      background: rgba(255, 106, 0, 0.12);
+      color: var(--daraz);
+      border: 1px solid rgba(255,106,0,0.2);
+    }
+
+    .card-source.olx {
+      background: rgba(59, 194, 110, 0.1);
+      color: var(--olx);
+      border: 1px solid rgba(59,194,110,0.2);
+    }
+
+    .card-title {
+      font-size: 0.88rem;
+      line-height: 1.4;
+      color: var(--text);
+      font-weight: 400;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .card-footer {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-price {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.6rem;
+      letter-spacing: 0.03em;
+      color: var(--accent);
+      line-height: 1;
+    }
+
+    .card-location {
+      font-size: 0.7rem;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+    }
+
+    /* ── EMPTY STATE ── */
+    .empty {
+      display: none;
+      position: relative;
+      z-index: 10;
+      padding: 80px 48px;
+      text-align: center;
+    }
+
+    .empty.visible { display: block; }
+
+    .empty-icon {
+      font-size: 3rem;
+      margin-bottom: 16px;
+      opacity: 0.3;
+    }
+
+    .empty-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 2rem;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    .empty-sub {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+
+    /* ── STATS ROW ── */
+    .stats-row {
+      position: relative;
+      z-index: 10;
+      padding: 0 48px 24px;
+      display: flex;
+      gap: 32px;
+    }
+
+    .stat {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .stat-val {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.6rem;
+      color: var(--text);
+      letter-spacing: 0.02em;
+      line-height: 1;
+    }
+
+    .stat-val.green { color: var(--olx); }
+    .stat-val.orange { color: var(--daraz); }
+
+    .stat-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 640px) {
+      header, .search-section, .filter-bar, .divider,
+      .status-bar, .loader, .results, .empty, .stats-row {
+        padding-left: 20px;
+        padding-right: 20px;
+      }
+      .divider { margin: 0 20px; }
+      .results { grid-template-columns: 1fr 1fr; }
+      .logo { font-size: 3.5rem; }
+    }
+
+    @media (max-width: 400px) {
+      .results { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Price<span>Pulse</span></div>
+  <div class="tagline">Pakistan's Price Comparator</div>
+</header>
+
+<div class="search-section">
+  <span class="search-label">// Search across Daraz &amp; OLX simultaneously</span>
+  <div class="search-row">
+    <input
+      class="search-input"
+      id="searchInput"
+      type="text"
+      placeholder="iPhone 15, Samsung Galaxy, Laptop..."
+      autocomplete="off"
+    />
+    <button class="search-btn" id="searchBtn" onclick="doSearch()">SEARCH</button>
+  </div>
+</div>
+
+<div class="filter-bar" id="filterBar" style="display:none">
+  <span class="filter-label">Source:</span>
+  <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+  <button class="filter-btn" data-filter="Daraz" onclick="setFilter('Daraz', this)">
+    <span class="source-dot" style="background:var(--daraz)"></span>Daraz
+  </button>
+  <button class="filter-btn" data-filter="OLX" onclick="setFilter('OLX', this)">
+    <span class="source-dot" style="background:var(--olx)"></span>OLX
+  </button>
+</div>
+
+<div class="stats-row" id="statsRow" style="display:none">
+  <div class="stat">
+    <div class="stat-val" id="statTotal">—</div>
+    <div class="stat-label">Results</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val green" id="statLow">—</div>
+    <div class="stat-label">Lowest Price</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val orange" id="statHigh">—</div>
+    <div class="stat-label">Highest Price</div>
+  </div>
+</div>
+
+<div class="divider" id="divider" style="display:none"></div>
+
+<div class="status-bar" id="statusBar" style="display:none">
+  <span class="status-text" id="statusText"></span>
+  <select class="sort-select" id="sortSelect" onchange="renderCards()">
+    <option value="default">Sort: Default</option>
+    <option value="price-asc">Price: Low → High</option>
+    <option value="price-desc">Price: High → Low</option>
+  </select>
+</div>
+
+<div class="loader" id="loader">
+  <div class="loader-dots">
+    <div class="loader-dot"></div>
+    <div class="loader-dot"></div>
+    <div class="loader-dot"></div>
+  </div>
+  <div class="loader-text" id="loaderText">SCANNING DARAZ &amp; OLX...</div>
+</div>
+
+<div class="empty" id="empty">
+  <div class="empty-icon">🔍</div>
+  <div class="empty-title">No Results Found</div>
+  <div class="empty-sub">Try a different search term or check your backend is running.</div>
+</div>
+
+<div class="results" id="results"></div>
+
+<script>
+  const API_BASE = 'http://127.0.0.1:8000/api';
+  let allProducts = [];
+  let activeFilter = 'all';
+
+  // Enter key support
+  document.getElementById('searchInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSearch();
+  });
+
+  function parsePrice(str) {
+    if (!str || str === 'N/A') return null;
+    // Handle "Rs 1.04 Lac" → 104000, "Rs. 49,499" → 49499
+    const s = str.replace(/rs\.?\s*/i, '').replace(/,/g, '').trim();
+    const lacMatch = s.match(/([\d.]+)\s*lac/i);
+    if (lacMatch) return parseFloat(lacMatch[1]) * 100000;
+    const num = parseFloat(s.replace(/[^\d.]/g, ''));
+    return isNaN(num) ? null : num;
+  }
+
+  function formatPrice(str) {
+    return str && str !== 'N/A' ? str : '—';
+  }
+
+  async function doSearch() {
+    const query = document.getElementById('searchInput').value.trim();
+    if (!query) return;
+
+    // Reset UI
+    allProducts = [];
+    activeFilter = 'all';
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+    document.getElementById('results').innerHTML = '';
+    document.getElementById('loader').classList.add('visible');
+    document.getElementById('empty').classList.remove('visible');
+    document.getElementById('filterBar').style.display = 'none';
+    document.getElementById('statsRow').style.display = 'none';
+    document.getElementById('divider').style.display = 'none';
+    document.getElementById('statusBar').style.display = 'none';
+    document.getElementById('searchBtn').disabled = true;
+
+    const loaderMsgs = [
+      'SCANNING DARAZ &amp; OLX...',
+      'BYPASSING BOT DETECTION...',
+      'EXTRACTING PRICES...',
+      'ALMOST THERE...'
+    ];
+    let msgIdx = 0;
+    const loaderInterval = setInterval(() => {
+      msgIdx = (msgIdx + 1) % loaderMsgs.length;
+      document.getElementById('loaderText').innerHTML = loaderMsgs[msgIdx];
+    }, 3000);
+
+    try {
+      const res = await fetch(`${API_BASE}/compare?q=${encodeURIComponent(query)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      allProducts = data.results ?? data;
+    } catch (err) {
+      allProducts = [];
+      console.error(err);
+    }
+
+    clearInterval(loaderInterval);
+    document.getElementById('loader').classList.remove('visible');
+    document.getElementById('searchBtn').disabled = false;
+
+    if (allProducts.length === 0) {
+      document.getElementById('empty').classList.add('visible');
+      return;
+    }
+
+    document.getElementById('filterBar').style.display = 'flex';
+    document.getElementById('statsRow').style.display = 'flex';
+    document.getElementById('divider').style.display = 'block';
+    document.getElementById('statusBar').style.display = 'flex';
+
+    renderCards();
+  }
+
+  function setFilter(filter, btn) {
+    activeFilter = filter;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderCards();
+  }
+
+  function renderCards() {
+    const sort = document.getElementById('sortSelect').value;
+    let filtered = activeFilter === 'all'
+      ? [...allProducts]
+      : allProducts.filter(p => p.source === activeFilter);
+
+    if (sort === 'price-asc' || sort === 'price-desc') {
+      filtered.sort((a, b) => {
+        const pa = parsePrice(a.price) ?? (sort === 'price-asc' ? Infinity : -Infinity);
+        const pb = parsePrice(b.price) ?? (sort === 'price-asc' ? Infinity : -Infinity);
+        return sort === 'price-asc' ? pa - pb : pb - pa;
+      });
+    }
+
+    // Stats
+    const prices = allProducts.map(p => parsePrice(p.price)).filter(Boolean);
+    const low = prices.length ? Math.min(...prices) : null;
+    const high = prices.length ? Math.max(...prices) : null;
+    document.getElementById('statTotal').textContent = filtered.length;
+    document.getElementById('statLow').textContent = low ? 'Rs ' + low.toLocaleString() : '—';
+    document.getElementById('statHigh').textContent = high ? 'Rs ' + high.toLocaleString() : '—';
+
+    const darazCount = allProducts.filter(p => p.source === 'Daraz').length;
+    const olxCount = allProducts.filter(p => p.source === 'OLX').length;
+    document.getElementById('statusText').innerHTML =
+      `<strong>${filtered.length}</strong> results &nbsp;·&nbsp; Daraz: <strong>${darazCount}</strong> &nbsp;·&nbsp; OLX: <strong>${olxCount}</strong>`;
+
+    const container = document.getElementById('results');
+    container.innerHTML = '';
+
+    filtered.forEach((p, i) => {
+      const card = document.createElement('a');
+      card.className = 'card';
+      card.href = p.url || '#';
+      card.target = '_blank';
+      card.rel = 'noopener noreferrer';
+      card.style.animationDelay = `${Math.min(i * 30, 400)}ms`;
+
+      const srcClass = p.source === 'Daraz' ? 'daraz' : 'olx';
+      const srcDot = p.source === 'Daraz'
+        ? `<span class="source-dot" style="background:var(--daraz)"></span>`
+        : `<span class="source-dot" style="background:var(--olx)"></span>`;
+
+      const isRealImg = p.image && p.image.startsWith('http') && !p.image.startsWith('data:');
+      const imgHtml = isRealImg
+        ? `<img class="card-img" src="${p.image}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div class="card-img-placeholder" style="display:none">📦</div>`
+        : `<div class="card-img-placeholder">📦</div>`;
+
+      const locationHtml = p.location
+        ? `<span class="card-location">📍 ${p.location.replace(/[•]/g, '').trim()}</span>`
+        : '';
+
+      card.innerHTML = `
+        ${imgHtml}
+        <div class="card-body">
+          <span class="card-source ${srcClass}">${srcDot}${p.source}</span>
+          <div class="card-title">${p.title || 'Untitled'}</div>
+          <div class="card-footer">
+            <div class="card-price">${formatPrice(p.price)}</div>
+            ${locationHtml}
+          </div>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+  }
+</script>
+</body>
+</html>

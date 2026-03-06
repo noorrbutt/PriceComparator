@@ -1,63 +1,92 @@
-# backend/app/scrapers/olx.py
-
 from playwright.async_api import async_playwright
+from playwright_stealth import Stealth
 import asyncio
 
-async def scrape_olx(query: str):
-    """
-    OLX is a classifieds site — unlike Daraz, listings are from
-    individual sellers, not retailers. This means:
-    - Prices are negotiable and inconsistent
-    - Same product can have wildly different prices
-    - No guaranteed stock or shipping
-    We label it clearly so the frontend can show users the difference.
-    """
 
+async def scrape_olx(query: str):
     products = []
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+            ],
+        )
 
-        await page.set_extra_http_headers({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
+        context = await browser.new_context(
+            viewport={"width": 1366, "height": 768},
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            locale="en-PK",
+            timezone_id="Asia/Karachi",
+        )
 
-        url = f"https://www.olx.com.pk/items/q-{query.replace(' ', '-')}"
-        print(f"[OLX] Scraping: {url}")
-        await page.goto(url)
-        await page.wait_for_load_state("networkidle")
-        await page.wait_for_selector('._8b88d490', timeout=15000)
-        products = await page.evaluate('''() => {
-            const cards = document.querySelectorAll('._8b88d490');
+        try:
+            # Apply stealth to the context, then open a page from it
+            await Stealth().apply_stealth_async(context)
+            page = await context.new_page()
 
-            return Array.from(cards).map(card => {
-                // Title is in h2 with class _1093b649
-                const title = card.querySelector('._1093b649')?.innerText?.trim() || "N/A";
+            url = f"https://www.olx.com.pk/items/q-{query.replace(' ', '-')}"
+            print(f"[OLX] Scraping: {url}")
 
-                // Price is in span with class f83175ac
-                const price = card.querySelector('.f83175ac')?.innerText?.trim() || "N/A";
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-                // Image — OLX lazy loads, so we check data-src first, then src
-                const img = card.querySelector('img');
-                const image = img?.getAttribute('data-src') || img?.src || "";
+            try:
+                await page.wait_for_selector(
+                    "._8b88d490, [data-aut-id='itemBox'], li[data-aut-id]",
+                    timeout=20000,
+                )
+            except Exception:
+                await page.evaluate("window.scrollTo(0, 500)")
+                await asyncio.sleep(2)
 
-                // URL is relative (/item/...) so we prepend the domain
-                const rawUrl = card.querySelector('a')?.getAttribute('href') || "";
-                const url = rawUrl.startsWith('/') ? 'https://www.olx.com.pk' + rawUrl : rawUrl;
+            products = await page.evaluate(
+                """() => {
+                let cards = document.querySelectorAll("._8b88d490");
+                if (cards.length === 0) {
+                    cards = document.querySelectorAll("li[data-aut-id]");
+                }
 
-                // Location — useful for OLX since it's classifieds
-                const location = card.querySelector('.f047db22')?.innerText?.replace('•', '').trim() || "";
+                return Array.from(cards).map(card => {
+                    const title =
+                        card.querySelector("._1093b649")?.innerText?.trim() ||
+                        card.querySelector("[data-aut-id='itemTitle']")?.innerText?.trim() ||
+                        "N/A";
 
-                return { title, price, image, url, location };
-            });
-        }''')
+                    const price =
+                        card.querySelector(".f83175ac")?.innerText?.trim() ||
+                        card.querySelector("[data-aut-id='itemPrice']")?.innerText?.trim() ||
+                        "N/A";
 
-        print(f"[OLX] Found {len(products)} products")
-        await browser.close()
+                    const img = card.querySelector("img");
+                    const image = img?.getAttribute("data-src") || img?.src || "";
 
-    for p in products:
-        p["source"] = "OLX"
+                    const rawUrl = card.querySelector("a")?.getAttribute("href") || "";
+                    const url = rawUrl.startsWith("/")
+                        ? "https://www.olx.com.pk" + rawUrl
+                        : rawUrl;
+
+                    const location =
+                        card.querySelector(".f047db22")?.innerText?.trim() ||
+                        card.querySelector("[data-aut-id='item-location']")?.innerText?.trim() ||
+                        "";
+
+                    return { title, price, image, url, location };
+                }).filter(item => item.title !== "N/A");
+            }"""
+            )
+
+            print(f"[OLX] Found {len(products)} products")
+
+        except Exception as e:
+            print(f"[OLX] Error: {e}")
+        finally:
+            await browser.close()
+
+    for item in products:
+        item["source"] = "OLX"
 
     return products
 

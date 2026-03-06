@@ -671,8 +671,9 @@
         : `<span class="source-dot" style="background:var(--olx)"></span>`;
 
       const isRealImg = p.image && p.image.startsWith('http') && !p.image.startsWith('data:');
+      const proxiedSrc = isRealImg ? `http://127.0.0.1:8000/api/image?url=${encodeURIComponent(p.image)}` : '';
       const imgHtml = isRealImg
-        ? `<img class="card-img" src="${p.image}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div class="card-img-placeholder" style="display:none">📦</div>`
+        ? `<img class="card-img" src="${proxiedSrc}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div class="card-img-placeholder" style="display:none">📦</div>`
         : `<div class="card-img-placeholder">📦</div>`;
 
       const locationHtml = p.location

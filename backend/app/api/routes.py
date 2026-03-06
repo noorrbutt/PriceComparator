@@ -2,7 +2,8 @@ import asyncio
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
+import httpx
 from playwright.sync_api import sync_playwright
 
 router = APIRouter()
@@ -67,6 +68,10 @@ def scrape_daraz_sync(query: str):
                 }).filter(p => p.title !== "N/A");
             }"""
             )
+            # Strip Daraz thumbnail suffix e.g. _200x200q80.avif → original jpg/png
+            for prod in products:
+                if prod.get("image"):
+                    prod["image"] = re.sub(r"_\d+x\d+q\d+\.\w+$", "", prod["image"])
             print(f"[Daraz] Found {len(products)} products")
         except Exception as e:
             print(f"[Daraz] Error: {e}")
@@ -92,16 +97,15 @@ def scrape_olx_sync(query: str):
         url = f"https://www.olx.com.pk/items/q-{query.replace(' ', '-')}"
         print(f"[OLX] Scraping: {url}")
         try:
-            # networkidle is too slow — domcontentloaded + manual wait is faster
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-            # Try selectors in order of reliability
+            # From debug: real card selector is article._84ba2e24 inside li._511d219f
             matched = None
             for selector in [
+                "article._84ba2e24",
+                "li._511d219f",
                 "li[data-aut-id]",
                 "[data-aut-id='itemBox']",
-                "._8b88d490",
-                ".EIR5N li",
             ]:
                 try:
                     page.wait_for_selector(selector, timeout=12000)
@@ -112,60 +116,41 @@ def scrape_olx_sync(query: str):
                     continue
 
             if not matched:
-                print("[OLX] No selector matched, falling back to scroll+wait")
+                print("[OLX] No selector matched, waiting 4s...")
                 page.evaluate("window.scrollTo(0, 600)")
-                time.sleep(3)
+                time.sleep(4)
 
             products = page.evaluate(
                 """() => {
-                // Try card selectors from most to least specific
-                let cards = document.querySelectorAll("li[data-aut-id]");
-                if (!cards.length) cards = document.querySelectorAll("[data-aut-id='itemBox']");
-                if (!cards.length) cards = document.querySelectorAll("._8b88d490");
-                if (!cards.length) cards = document.querySelectorAll(".EIR5N li");
+                let cards = document.querySelectorAll("article._84ba2e24");
+                if (!cards.length) cards = document.querySelectorAll("li._511d219f article");
+                if (!cards.length) cards = document.querySelectorAll("li[data-aut-id]");
 
                 const results = [];
                 cards.forEach(card => {
-                    // Title — multiple fallbacks
-                    const title =
-                        card.querySelector("[data-aut-id='itemTitle']")?.innerText?.trim() ||
-                        card.querySelector("h2")?.innerText?.trim() ||
-                        card.querySelector("h3")?.innerText?.trim() ||
-                        card.querySelector("._1093b649")?.innerText?.trim() ||
-                        "";
+                    const title = card.querySelector("h2._6aaa9e3e")?.innerText?.trim() ||
+                                  card.querySelector("h2, h3")?.innerText?.trim() || "";
 
-                    // Price — multiple fallbacks
-                    const price =
-                        card.querySelector("[data-aut-id='itemPrice']")?.innerText?.trim() ||
-                        card.querySelector("._2Ks63")?.innerText?.trim() ||
-                        card.querySelector(".f83175ac")?.innerText?.trim() ||
-                        // Generic: find any element containing "Rs"
-                        (() => {
-                            const els = card.querySelectorAll("*");
-                            for (const el of els) {
-                                if (el.children.length === 0 && el.innerText?.includes("Rs")) {
-                                    return el.innerText.trim();
-                                }
-                            }
-                            return "";
-                        })();
+                    const price = card.querySelector("span.cb7e1f7d")?.innerText?.trim() ||
+                                  card.querySelector("[class*='price']")?.innerText?.trim() || "";
 
-                    // Image — only real URLs, no base64
                     const img = card.querySelector("img");
-                    const rawImg = img?.getAttribute("data-src") || img?.src || "";
-                    const image = rawImg.startsWith("http") ? rawImg : "";
+                    const image = img?.src?.startsWith("http") ? img.src : "";
 
-                    // URL
-                    const rawUrl = card.querySelector("a")?.getAttribute("href") || "";
-                    const url = rawUrl.startsWith("/")
-                        ? "https://www.olx.com.pk" + rawUrl
-                        : rawUrl;
+                    const link = card.closest("a") || card.querySelector("a");
+                    const rawUrl = link?.getAttribute("href") || "";
+                    const url = rawUrl.startsWith("/") ? "https://www.olx.com.pk" + rawUrl : rawUrl;
 
-                    // Location
-                    const location =
-                        card.querySelector("[data-aut-id='item-location']")?.innerText?.trim() ||
-                        card.querySelector(".f047db22")?.innerText?.replace("•", "").trim() ||
-                        "";
+                    // Location: any leaf span that isn't price/title/delivery
+                    let location = "";
+                    card.querySelectorAll("span").forEach(el => {
+                        if (el.children.length === 0) {
+                            const t = el.innerText?.trim() || "";
+                            if (t && !t.startsWith("Rs") && t !== "Delivery" && t.length > 3 && t.length < 60) {
+                                location = t;
+                            }
+                        }
+                    });
 
                     if (title && price) results.push({ title, price, image, url, location });
                 });
@@ -182,12 +167,43 @@ def scrape_olx_sync(query: str):
     return products
 
 
+@router.get("/image")
+async def proxy_image(url: str):
+    """Proxy images from Daraz/OLX to avoid hotlink blocking."""
+    REFERERS = {
+        "daraz.pk": "https://www.daraz.pk/",
+        "olx.com.pk": "https://www.olx.com.pk/",
+    }
+    referer = "https://www.google.com/"
+    for domain, ref in REFERERS.items():
+        if domain in url:
+            referer = ref
+            break
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Referer": referer,
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            resp = await client.get(url, headers=headers)
+            content_type = resp.headers.get("content-type", "image/jpeg")
+            return Response(
+                content=resp.content,
+                media_type=content_type,
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+    except Exception as e:
+        print(f"[ImageProxy] Error: {e}")
+        return Response(status_code=404)
+
+
 @router.get("/compare")
 async def compare_prices(q: str):
     print(f"[API] Searching for: {q}")
     loop = asyncio.get_event_loop()
 
-    # No timeout limit on executor — let scrapers run as long as needed
     daraz_future = loop.run_in_executor(executor, scrape_daraz_sync, q)
     olx_future = loop.run_in_executor(executor, scrape_olx_sync, q)
 

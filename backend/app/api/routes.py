@@ -2,9 +2,13 @@ import asyncio
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from fastapi import APIRouter, Response
 import httpx
 from playwright.sync_api import sync_playwright
+
+from app.db.cache_service import get_cached, set_cache
+from app.models.response import CompareResponse
 
 router = APIRouter()
 executor = ThreadPoolExecutor(max_workers=2)
@@ -29,56 +33,41 @@ def normalize_price(price_str: str):
     return None
 
 
-def scrape_daraz_sync(query: str):
+async def scrape_daraz(query: str):
+    """Scrape Daraz using their internal JSON API (1-3 seconds vs 40-60 with browser)."""
     products = []
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
-        )
-        page = browser.new_page()
-        page.set_extra_http_headers(
-            {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-            }
-        )
-        url = f"https://www.daraz.pk/catalog/?q={query.replace(' ', '+')}"
-        print(f"[Daraz] Scraping: {url}")
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            try:
-                page.wait_for_selector(
-                    '[data-qa-locator="product-item"]', timeout=20000
-                )
-            except:
-                pass
-            products = page.evaluate(
-                """() => {
-                const cards = document.querySelectorAll('[data-qa-locator="product-item"]');
-                return Array.from(cards).map(card => {
-                    const titleEl = card.querySelector(".RfADt a");
-                    const title = titleEl?.getAttribute("title") || titleEl?.innerText?.trim() || "N/A";
-                    const price = card.querySelector(".ooOxS")?.innerText?.trim() || "N/A";
-                    const img = card.querySelector("img");
-                    const rawImg = img?.getAttribute("data-src") || img?.src || "";
-                    const image = rawImg.startsWith("http") ? rawImg : "";
-                    const rawUrl = card.querySelector("a")?.getAttribute("href") || "";
-                    const url = rawUrl.startsWith("//") ? "https:" + rawUrl : rawUrl;
-                    return { title, price, image, url };
-                }).filter(p => p.title !== "N/A");
-            }"""
-            )
-            # Strip Daraz thumbnail suffix e.g. _200x200q80.avif → original jpg/png
-            for prod in products:
-                if prod.get("image"):
-                    prod["image"] = re.sub(r"_\d+x\d+q\d+\.\w+$", "", prod["image"])
-            print(f"[Daraz] Found {len(products)} products")
-        except Exception as e:
-            print(f"[Daraz] Error: {e}")
-        finally:
-            browser.close()
-    for prod in products:
-        prod["source"] = "Daraz"
+    try:
+        url = f"https://www.daraz.pk/catalog/?ajax=true&isFirstRequest=true&page=1&q={query.replace(' ', '+')}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://www.daraz.pk/",
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        print(f"[Daraz] Scraping API: {url}")
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(url, headers=headers)
+            data = resp.json()
+
+            # Extract products from API response
+            if "mods" in data and "listItems" in data["mods"]:
+                for item in data["mods"]["listItems"]:
+                    try:
+                        product = {
+                            "title": item.get("name", "N/A"),
+                            "price": f"Rs {item.get('price', 'N/A')}",
+                            "image": item.get("image", ""),
+                            "url": f"https://www.daraz.pk{item.get('itemUrl', '')}",
+                            "source": "Daraz",
+                        }
+                        if product["title"] != "N/A" and product["price"] != "Rs N/A":
+                            products.append(product)
+                    except Exception as e:
+                        continue
+
+        print(f"[Daraz] Found {len(products)} products")
+    except Exception as e:
+        print(f"[Daraz] Error: {e}")
+
     return products
 
 
@@ -134,8 +123,9 @@ def scrape_olx_sync(query: str):
                     const price = card.querySelector("span.cb7e1f7d")?.innerText?.trim() ||
                                   card.querySelector("[class*='price']")?.innerText?.trim() || "";
 
-                    const img = card.querySelector("img");
-                    const image = img?.src?.startsWith("http") ? img.src : "";
+                    const imgEl = card.querySelector("img");
+                    const src = imgEl?.getAttribute('data-src') || imgEl?.getAttribute('src') || '';
+                    const image = src.startsWith('http') && (src.includes('olxcdn') || src.includes('olx.com')) ? src : '';
 
                     const link = card.closest("a") || card.querySelector("a");
                     const rawUrl = link?.getAttribute("href") || "";
@@ -199,25 +189,51 @@ async def proxy_image(url: str):
         return Response(status_code=404)
 
 
-@router.get("/compare")
+@router.get("/compare", response_model=CompareResponse)
 async def compare_prices(q: str):
     print(f"[API] Searching for: {q}")
+
+    # Try to get cached results first
+    cached_results = await get_cached(q)
+    if cached_results:
+        print(f"[API] Cache hit for: {q}")
+        return {
+            "query": q,
+            "total": len(cached_results),
+            "results": cached_results,
+            "cached": True,
+            "scraped_at": datetime.utcnow().isoformat(),
+        }
+
+    print(f"[API] Cache miss for: {q}, running scrapers...")
+    scraped_at = datetime.utcnow()
     loop = asyncio.get_event_loop()
 
-    daraz_future = loop.run_in_executor(executor, scrape_daraz_sync, q)
+    # Daraz uses our new async API scraper (fast: 1-3s)
+    daraz_coro = scrape_daraz(q)
+    # OLX still uses Playwright via executor (slow: 30-40s)
     olx_future = loop.run_in_executor(executor, scrape_olx_sync, q)
 
+    # Run both in parallel using asyncio.gather with timeout
     try:
-        daraz_results = await asyncio.wait_for(daraz_future, timeout=120)
-    except Exception as e:
-        print(f"[API] Daraz error: {e}")
-        daraz_results = []
+        results = await asyncio.wait_for(
+            asyncio.gather(daraz_coro, olx_future, return_exceptions=True),
+            timeout=120,
+        )
+    except asyncio.TimeoutError:
+        print(f"[API] Scrapers timeout after 120s")
+        results = [
+            asyncio.TimeoutError("Daraz timeout"),
+            asyncio.TimeoutError("OLX timeout"),
+        ]
 
-    try:
-        olx_results = await asyncio.wait_for(olx_future, timeout=120)
-    except Exception as e:
-        print(f"[API] OLX error: {e}")
-        olx_results = []
+    daraz_results = results[0] if not isinstance(results[0], Exception) else []
+    olx_results = results[1] if not isinstance(results[1], Exception) else []
+
+    if isinstance(results[0], Exception):
+        print(f"[API] Daraz error: {results[0]}")
+    if isinstance(results[1], Exception):
+        print(f"[API] OLX error: {results[1]}")
 
     all_products = daraz_results + olx_results
 
@@ -230,4 +246,14 @@ async def compare_prices(q: str):
         )
     )
 
-    return {"query": q, "total": len(all_products), "results": all_products}
+    # Cache the results
+    await set_cache(q, all_products)
+    print(f"[API] Cached results for: {q}")
+
+    return {
+        "query": q,
+        "total": len(all_products),
+        "results": all_products,
+        "cached": False,
+        "scraped_at": scraped_at.isoformat(),
+    }

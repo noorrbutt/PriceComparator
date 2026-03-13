@@ -32,7 +32,6 @@
       overflow-x: hidden;
     }
 
-    /* ── NOISE TEXTURE OVERLAY ── */
     body::before {
       content: '';
       position: fixed;
@@ -44,7 +43,6 @@
       opacity: 0.5;
     }
 
-    /* ── HEADER ── */
     header {
       position: relative;
       z-index: 10;
@@ -62,9 +60,7 @@
       color: var(--text);
     }
 
-    .logo span {
-      color: var(--accent);
-    }
+    .logo span { color: var(--accent); }
 
     .tagline {
       font-size: 0.8rem;
@@ -74,7 +70,6 @@
       padding-bottom: 12px;
     }
 
-    /* ── SEARCH SECTION ── */
     .search-section {
       position: relative;
       z-index: 10;
@@ -136,7 +131,6 @@
     .search-btn:active { transform: scale(0.98); }
     .search-btn:disabled { background: #2a2a2e; color: var(--muted); cursor: not-allowed; transform: none; }
 
-    /* ── FILTER BAR ── */
     .filter-bar {
       position: relative;
       z-index: 10;
@@ -185,7 +179,6 @@
       vertical-align: middle;
     }
 
-    /* ── DIVIDER LINE ── */
     .divider {
       position: relative;
       z-index: 10;
@@ -194,7 +187,6 @@
       background: var(--border);
     }
 
-    /* ── STATUS BAR ── */
     .status-bar {
       position: relative;
       z-index: 10;
@@ -226,7 +218,6 @@
       outline: none;
     }
 
-    /* ── LOADER ── */
     .loader {
       display: none;
       position: relative;
@@ -234,8 +225,6 @@
       padding: 80px 48px;
       text-align: center;
     }
-
-    .loader.visible { display: block; }
 
     .loader-dots {
       display: inline-flex;
@@ -265,7 +254,6 @@
       letter-spacing: 0.1em;
     }
 
-    /* ── RESULTS GRID ── */
     .results {
       position: relative;
       z-index: 10;
@@ -275,7 +263,6 @@
       gap: 16px;
     }
 
-    /* ── PRODUCT CARD ── */
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -357,10 +344,11 @@
       line-height: 1.4;
       color: var(--text);
       font-weight: 400;
+      overflow: hidden;
       display: -webkit-box;
       -webkit-line-clamp: 3;
+      line-clamp: 3;
       -webkit-box-orient: vertical;
-      overflow: hidden;
     }
 
     .card-footer {
@@ -384,7 +372,6 @@
       font-family: 'DM Mono', monospace;
     }
 
-    /* ── EMPTY STATE ── */
     .empty {
       display: none;
       position: relative;
@@ -392,8 +379,6 @@
       padding: 80px 48px;
       text-align: center;
     }
-
-    .empty.visible { display: block; }
 
     .empty-icon {
       font-size: 3rem;
@@ -414,7 +399,6 @@
       margin-top: 8px;
     }
 
-    /* ── STATS ROW ── */
     .stats-row {
       position: relative;
       z-index: 10;
@@ -448,7 +432,6 @@
       text-transform: uppercase;
     }
 
-    /* ── RESPONSIVE ── */
     @media (max-width: 640px) {
       header, .search-section, .filter-bar, .divider,
       .status-bar, .loader, .results, .empty, .stats-row {
@@ -482,7 +465,7 @@
       placeholder="iPhone 15, Samsung Galaxy, Laptop..."
       autocomplete="off"
     />
-    <button class="search-btn" id="searchBtn" onclick="doSearch()">SEARCH</button>
+    <button class="search-btn" id="searchBtn" onclick="doSearch(event)">SEARCH</button>
   </div>
 </div>
 
@@ -523,7 +506,8 @@
   </select>
 </div>
 
-<div class="loader" id="loader">
+<!-- loader starts hidden -->
+<div class="loader" id="loader" style="display:none">
   <div class="loader-dots">
     <div class="loader-dot"></div>
     <div class="loader-dot"></div>
@@ -544,15 +528,17 @@
   const API_BASE = 'http://127.0.0.1:8000/api';
   let allProducts = [];
   let activeFilter = 'all';
+  let lastCached = false;
 
-  // Enter key support
-  document.getElementById('searchInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') doSearch();
-  });
+  document.getElementById('searchInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('searchBtn').click();
+  }
+});
 
   function parsePrice(str) {
     if (!str || str === 'N/A') return null;
-    // Handle "Rs 1.04 Lac" → 104000, "Rs. 49,499" → 49499
     const s = str.replace(/rs\.?\s*/i, '').replace(/,/g, '').trim();
     const lacMatch = s.match(/([\d.]+)\s*lac/i);
     if (lacMatch) return parseFloat(lacMatch[1]) * 100000;
@@ -564,22 +550,44 @@
     return str && str !== 'N/A' ? str : '—';
   }
 
-  async function doSearch() {
+  function showLoader() {
+    const el = document.getElementById('loader');
+    el.style.display = 'block';
+  }
+
+  function hideLoader() {
+    const el = document.getElementById('loader');
+    el.style.display = 'none';
+  }
+
+  async function doSearch(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
     const query = document.getElementById('searchInput').value.trim();
     if (!query) return;
 
-    // Reset UI
+    // Reset state
     allProducts = [];
     activeFilter = 'all';
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+    lastCached = false;
+
+    // Reset UI
+    document.querySelectorAll('.filter-btn').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.filter === 'all');
+    });
     document.getElementById('results').innerHTML = '';
-    document.getElementById('loader').classList.add('visible');
-    document.getElementById('empty').classList.remove('visible');
+    document.getElementById('empty').style.display = 'none';
     document.getElementById('filterBar').style.display = 'none';
     document.getElementById('statsRow').style.display = 'none';
     document.getElementById('divider').style.display = 'none';
     document.getElementById('statusBar').style.display = 'none';
     document.getElementById('searchBtn').disabled = true;
+    document.getElementById('searchInput').disabled = true;
+
+    showLoader();
 
     const loaderMsgs = [
       'SCANNING DARAZ &amp; OLX...',
@@ -588,27 +596,29 @@
       'ALMOST THERE...'
     ];
     let msgIdx = 0;
-    const loaderInterval = setInterval(() => {
+    const loaderInterval = setInterval(function() {
       msgIdx = (msgIdx + 1) % loaderMsgs.length;
       document.getElementById('loaderText').innerHTML = loaderMsgs[msgIdx];
     }, 3000);
 
     try {
-      const res = await fetch(`${API_BASE}/compare?q=${encodeURIComponent(query)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const res = await fetch(API_BASE + '/compare?q=' + encodeURIComponent(query));
+      if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       allProducts = data.results ?? data;
+      lastCached = data.cached ?? false;
     } catch (err) {
       allProducts = [];
-      console.error(err);
+      console.error('[PricePulse] Fetch error:', err);
     }
 
     clearInterval(loaderInterval);
-    document.getElementById('loader').classList.remove('visible');
+    hideLoader();
     document.getElementById('searchBtn').disabled = false;
+    document.getElementById('searchInput').disabled = false;
 
     if (allProducts.length === 0) {
-      document.getElementById('empty').classList.add('visible');
+      document.getElementById('empty').style.display = 'block';
       return;
     }
 
@@ -622,7 +632,9 @@
 
   function setFilter(filter, btn) {
     activeFilter = filter;
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.filter-btn').forEach(function(b) {
+      b.classList.remove('active');
+    });
     btn.classList.add('active');
     renderCards();
   }
@@ -630,69 +642,76 @@
   function renderCards() {
     const sort = document.getElementById('sortSelect').value;
     let filtered = activeFilter === 'all'
-      ? [...allProducts]
-      : allProducts.filter(p => p.source === activeFilter);
+      ? allProducts.slice()
+      : allProducts.filter(function(p) { return p.source === activeFilter; });
 
     if (sort === 'price-asc' || sort === 'price-desc') {
-      filtered.sort((a, b) => {
+      filtered.sort(function(a, b) {
         const pa = parsePrice(a.price) ?? (sort === 'price-asc' ? Infinity : -Infinity);
         const pb = parsePrice(b.price) ?? (sort === 'price-asc' ? Infinity : -Infinity);
         return sort === 'price-asc' ? pa - pb : pb - pa;
       });
     }
 
-    // Stats
-    const prices = allProducts.map(p => parsePrice(p.price)).filter(Boolean);
-    const low = prices.length ? Math.min(...prices) : null;
-    const high = prices.length ? Math.max(...prices) : null;
+    const prices = allProducts.map(function(p) { return parsePrice(p.price); }).filter(Boolean);
+    const low = prices.length ? Math.min.apply(null, prices) : null;
+    const high = prices.length ? Math.max.apply(null, prices) : null;
+
     document.getElementById('statTotal').textContent = filtered.length;
     document.getElementById('statLow').textContent = low ? 'Rs ' + low.toLocaleString() : '—';
     document.getElementById('statHigh').textContent = high ? 'Rs ' + high.toLocaleString() : '—';
 
-    const darazCount = allProducts.filter(p => p.source === 'Daraz').length;
-    const olxCount = allProducts.filter(p => p.source === 'OLX').length;
+    const darazCount = allProducts.filter(function(p) { return p.source === 'Daraz'; }).length;
+    const olxCount = allProducts.filter(function(p) { return p.source === 'OLX'; }).length;
+    const cacheTag = lastCached
+      ? ' &nbsp;·&nbsp; <span style="color:var(--accent);font-family:\'DM Mono\',monospace;font-size:0.65rem;letter-spacing:0.1em">⚡ CACHED</span>'
+      : ' &nbsp;·&nbsp; <span style="color:var(--muted);font-family:\'DM Mono\',monospace;font-size:0.65rem">🔄 LIVE</span>';
+
     document.getElementById('statusText').innerHTML =
-      `<strong>${filtered.length}</strong> results &nbsp;·&nbsp; Daraz: <strong>${darazCount}</strong> &nbsp;·&nbsp; OLX: <strong>${olxCount}</strong>`;
+      '<strong>' + filtered.length + '</strong> results &nbsp;·&nbsp; Daraz: <strong>' + darazCount + '</strong> &nbsp;·&nbsp; OLX: <strong>' + olxCount + '</strong>' + cacheTag;
 
     const container = document.getElementById('results');
     container.innerHTML = '';
 
-    filtered.forEach((p, i) => {
+    filtered.forEach(function(p, i) {
       const card = document.createElement('a');
       card.className = 'card';
       card.href = p.url || '#';
       card.target = '_blank';
       card.rel = 'noopener noreferrer';
-      card.style.animationDelay = `${Math.min(i * 30, 400)}ms`;
+      card.style.animationDelay = Math.min(i * 30, 400) + 'ms';
 
       const srcClass = p.source === 'Daraz' ? 'daraz' : 'olx';
-      const srcDot = p.source === 'Daraz'
-        ? `<span class="source-dot" style="background:var(--daraz)"></span>`
-        : `<span class="source-dot" style="background:var(--olx)"></span>`;
+      const dotColor = p.source === 'Daraz' ? 'var(--daraz)' : 'var(--olx)';
 
       const isRealImg = p.image && p.image.startsWith('http') && !p.image.startsWith('data:');
-      const proxiedSrc = isRealImg ? `http://127.0.0.1:8000/api/image?url=${encodeURIComponent(p.image)}` : '';
-      const imgHtml = isRealImg
-        ? `<img class="card-img" src="${proxiedSrc}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" /><div class="card-img-placeholder" style="display:none">📦</div>`
-        : `<div class="card-img-placeholder">📦</div>`;
-
-      const locationHtml = p.location
-        ? `<span class="card-location">📍 ${p.location.replace(/[•]/g, '').trim()}</span>`
+      const imgSrc = isRealImg
+        ? (p.source === 'Daraz' ? p.image : API_BASE + '/image?url=' + encodeURIComponent(p.image))
         : '';
 
-      card.innerHTML = `
-        ${imgHtml}
-        <div class="card-body">
-          <span class="card-source ${srcClass}">${srcDot}${p.source}</span>
-          <div class="card-title">${p.title || 'Untitled'}</div>
-          <div class="card-footer">
-            <div class="card-price">${formatPrice(p.price)}</div>
-            ${locationHtml}
-          </div>
-        </div>
-      `;
+      const imgHtml = isRealImg
+        ? '<img class="card-img" src="' + imgSrc + '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'" /><div class="card-img-placeholder" style="display:none">📦</div>'
+        : '<div class="card-img-placeholder">📦</div>';
+
+      const locationHtml = p.location
+        ? '<span class="card-location">📍 ' + p.location.replace(/[•]/g, '').trim() + '</span>'
+        : '';
+
+      card.innerHTML =
+        imgHtml +
+        '<div class="card-body">' +
+          '<span class="card-source ' + srcClass + '"><span class="source-dot" style="background:' + dotColor + '"></span>' + p.source + '</span>' +
+          '<div class="card-title">' + (p.title || 'Untitled') + '</div>' +
+          '<div class="card-footer">' +
+            '<div class="card-price">' + formatPrice(p.price) + '</div>' +
+            locationHtml +
+          '</div>' +
+        '</div>';
+
       container.appendChild(card);
     });
+
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 </script>
 </body>

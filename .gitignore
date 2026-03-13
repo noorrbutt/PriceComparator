@@ -6,3 +6,4 @@ backend/app/scrapers/__pycache__/__init__.cpython-313.pyc
 backend/app/scrapers/__pycache__/daraz.cpython-313.pyc
 backend/app/scrapers/__pycache__/olx.cpython-313.pyc
 *.pyc
+*.db
